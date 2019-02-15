@@ -40,9 +40,8 @@
 
 static EmulateSpecStruct* espec = NULL;
 static bool PAL;
-static bool CorrectAspect;
+static bool CorrectAspect = true;
 static bool ShowHOverscan;
-bool DoHBlend;
 static int LineVisFirst, LineVisLast;
 static uint32 NextOutLine;
 static bool Clock28M;
@@ -51,7 +50,7 @@ static VDP2Rend_LIB LIB[256];
 static uint16 VRAM[262144];
 static uint16 CRAM[2048];
 
-static uint8 HRes, VRes;
+uint8 HRes, VRes;
 static bool BorderMode;
 static uint8 InterlaceMode;
 enum { IM_NONE, IM_ILLEGAL, IM_SINGLE, IM_DOUBLE };
@@ -1706,7 +1705,6 @@ static void T_DrawNBG23(const unsigned n, uint64* bgbuf, const unsigned w, const
  // printf("(TA_bpp == %d && n == %d && VRAM_Mode == 0x%01x && (HRes & 0x6) == 0x%01x && MDFN_de64lsb(VCPRegs[0]) == 0x%016llxULL && MDFN_de64lsb(VCPRegs[1]) == 0x%016llxULL && MDFN_de64lsb(VCPRegs[2]) == 0x%016llxULL && MDFN_de64lsb(VCPRegs[3]) == 0x%016llxULL) || \n", TA_bpp, n, VRAM_Mode, HRes & 0x6, (unsigned long long)MDFN_de64lsb(VCPRegs[0]), (unsigned long long)MDFN_de64lsb(VCPRegs[1]), (unsigned long long)MDFN_de64lsb(VCPRegs[2]), (unsigned long long)MDFN_de64lsb(VCPRegs[3]));
  if(MDFN_UNLIKELY(
   /* Akumajou Dracula X */ (TA_bpp == 4 && n == 3 && VRAM_Mode == 0x2 && (HRes & 0x6) == 0x0 && MDFN_de64lsb(VCPRegs[0]) == 0x0f0f070406060505ULL && MDFN_de64lsb(VCPRegs[1]) == 0x0f0f0f0f0f0f0f0fULL && MDFN_de64lsb(VCPRegs[2]) == 0x0f0f03000f0f0201ULL && MDFN_de64lsb(VCPRegs[3]) == 0x0f0f0f0f0f0f0f0fULL) ||
-  /* Alien Trilogy      */ (TA_bpp == 4 && n == 3 && VRAM_Mode == 0x2 && (HRes & 0x6) == 0x0 && MDFN_de64lsb(VCPRegs[0]) == 0x07050f0f0f0f0606ULL && MDFN_de64lsb(VCPRegs[1]) == 0x0f0f0f0f0f0f0f0fULL && MDFN_de64lsb(VCPRegs[2]) == 0x0f0f0f0f0f0f0f0fULL && MDFN_de64lsb(VCPRegs[3]) == 0x0f0103020f0f0f0fULL) ||
   /* Daytona USA CCE    */ (TA_bpp == 4 && n == 2 && VRAM_Mode == 0x3 && (HRes & 0x6) == 0x0 && MDFN_de64lsb(VCPRegs[0]) == 0x0f0f0f0f00000404ULL && MDFN_de64lsb(VCPRegs[1]) == 0x0f0f0f060f0f0f0fULL && MDFN_de64lsb(VCPRegs[2]) == 0x0f0f0f0f0505070fULL && MDFN_de64lsb(VCPRegs[3]) == 0x0f0f03020f010f00ULL) ||
   0))
  {
@@ -2560,61 +2558,7 @@ static void (*MixIt[2][6][2][2])(uint32* target, const unsigned vdp2_line, const
  {  {  { T_MixIt<1, 0, 0, 0>, T_MixIt<1, 0, 0, 1>,  },  { T_MixIt<1, 0, 1, 0>, T_MixIt<1, 0, 1, 1>,  },  },  {  { T_MixIt<1, 1, 0, 0>, T_MixIt<1, 1, 0, 1>,  },  { T_MixIt<1, 1, 1, 0>, T_MixIt<1, 1, 1, 1>,  },  },  {  { T_MixIt<1, 2, 0, 0>, T_MixIt<1, 2, 0, 1>,  },  { T_MixIt<1, 2, 1, 0>, T_MixIt<1, 2, 1, 1>,  },  },  {  { T_MixIt<1, 3, 0, 0>, T_MixIt<1, 3, 0, 1>,  },  { T_MixIt<1, 3, 1, 0>, T_MixIt<1, 3, 1, 1>,  },  },  {  { T_MixIt<1, 4, 0, 0>, T_MixIt<1, 4, 0, 1>,  },  { T_MixIt<1, 4, 1, 0>, T_MixIt<1, 4, 1, 1>,  },  },  {  { T_MixIt<1, 5, 0, 0>, T_MixIt<1, 5, 0, 1>,  },  { T_MixIt<1, 5, 1, 0>, T_MixIt<1, 5, 1, 1>,  },  },  },
 };
 
-static int32 ApplyHBlend(uint32* const target, int32 w)
-{
- #define BHALF(m, n) ((((uint64)(m) + (n)) - (((m) ^ (n)) & 0x01010101)) >> 1)
 
- assert(w >= 4);
-
-#if 1
- if(!(HRes & 0x2))
- {
-  target[(w - 1) * 2 + 1] = target[w - 1];
-  target[(w - 1) * 2 + 0] = BHALF(BHALF(target[w - 2], target[w - 1]), target[w - 1]);
-
-  for(int32 x = w - 2; x > 0; x--)
-  {
-   uint32 ptxm1 = target[x - 1];
-   uint32 ptx = target[x];
-   uint32 ptxp1 = target[x + 1];
-   uint32 ptxm1_ptx = BHALF(ptxm1, ptx);
-   uint32 ptx_ptxp1 = BHALF(ptx, ptxp1);
-
-   target[x * 2 + 0] = BHALF(ptxm1_ptx, ptx);
-   target[x * 2 + 1] = BHALF(ptx_ptxp1, ptx);
-  }
-
-  target[1] = BHALF(BHALF(target[0], target[1]), target[0]);
-  target[0] = target[0];
-
-  return w << 1;
- }
- else
-#else
- if(!(HRes & 0x2))
- {
-  for(int32 x = w - 1; x >= 0; x--)
-   target[x * 2 + 0] = target[x * 2 + 1] = target[x];
-
-  w <<= 1;
- }
-#endif
- {
-  uint32 a = target[0];
-  for(int32 x = 0; x < w - 1; x++)
-  {
-   uint32 b = target[x];
-   uint32 c = target[x + 1];
-   uint32 ac = BHALF(a, c);
-   uint32 bac = BHALF(b, ac);
-
-   target[x] = bac;
-   a = b;
-  }
-  return w;
- }
- #undef BHALF
-}
 
 static void ReorderRGB(uint32* target, const unsigned w, const unsigned Rshift, const unsigned Gshift, const unsigned Bshift)
 {
@@ -2641,7 +2585,7 @@ static void ReorderRGB(uint32* target, const unsigned w, const unsigned Rshift, 
 static NO_INLINE void DrawLine(const uint16 out_line, const uint16 vdp2_line, const bool field)
 {
  uint32* target;
- const int32 tvdw = ((!CorrectAspect || Clock28M) ? 352 : 330) << ((HRes & 0x2) >> 1);
+ const int32 tvdw = ((!CorrectAspect || Clock28M) ? 352 : 320) << ((HRes & 0x2) >> 1);
  const unsigned rbg_w = ((HRes & 0x1) ? 352 : 320);
  const unsigned w = ((HRes & 0x1) ? 352 : 320) << ((HRes & 0x2) >> 1);
  const int32 tvxo = std::max<int32>(0, (int32)(tvdw - w) >> 1);
@@ -2682,10 +2626,8 @@ static NO_INLINE void DrawLine(const uint16 out_line, const uint16 vdp2_line, co
    if(InterlaceMode == IM_DOUBLE && field)
    {
     const uint8 sc = (SCRCTL >> (n << 3));
-    const uint8 lss = ((sc >> 4) & 0x3);
 
-    if(!lss)
-     CurLSA[n] += ((bool)(sc & 0x2) + (bool)(sc & 0x4) + (bool)(sc & 0x8)) << 1;
+    CurLSA[n] += ((bool)(sc & 0x2) + (bool)(sc & 0x4) + (bool)(sc & 0x8)) << 1;
    }
    //
    //
@@ -2732,7 +2674,7 @@ static NO_INLINE void DrawLine(const uint16 out_line, const uint16 vdp2_line, co
   //
   // Line scroll
   //
-  const unsigned ls_comp_line = vdp2_line << (InterlaceMode == IM_DOUBLE);
+  unsigned ls_comp_line = vdp2_line;
 
   for(unsigned n = 0; n < 2; n++)
   {
@@ -2772,7 +2714,7 @@ static NO_INLINE void DrawLine(const uint16 out_line, const uint16 vdp2_line, co
      CurLSA[n]++;
     }
 
-    if(InterlaceMode == IM_DOUBLE && !lss)
+    if(InterlaceMode == IM_DOUBLE)
      CurLSA[n] += ((bool)(sc & 0x2) + (bool)(sc & 0x4) + (bool)(sc & 0x8)) << 1;
    }
 
@@ -3105,16 +3047,6 @@ static NO_INLINE void DrawLine(const uint16 out_line, const uint16 vdp2_line, co
    MosaicVCount++;
  }
 
- //
- //
- //
- if(DoHBlend)
- {
-  espec->LineWidths[out_line] = ApplyHBlend(espec->surface->pixels + out_line * espec->surface->pitchinpix + espec->DisplayRect.x, espec->LineWidths[out_line]);
-
-  // Kind of late, but meh. ;p
-  assert((espec->DisplayRect.x + espec->LineWidths[out_line]) <= 704);
- }
 }
 
 //
@@ -3265,7 +3197,7 @@ void VDP2REND_SetGetVideoParams(MDFNGI* gi, const bool caspect, const int sls, c
 {
  CorrectAspect = caspect;
  ShowHOverscan = show_h_overscan;
- DoHBlend = dohblend;
+// DoHBlend = dohblend;
  LineVisFirst = sls;
  LineVisLast = sle;
  //

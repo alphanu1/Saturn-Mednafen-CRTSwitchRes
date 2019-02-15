@@ -84,6 +84,10 @@ static const struct
  //
  //
  //
+ { "T-16804G", CART_BACKUP_MEM },// Dezaemon 2
+ //
+ //
+ //
  { "MK-81088", CART_KOF95 },	// The King of Fighters '95 (Europe)
  { "T-3101G", CART_KOF95 },	// The King of Fighters '95
  { "T-13308G", CART_ULTRAMAN },// Ultraman: Hikari no Kyojin Densetsu
@@ -126,6 +130,7 @@ static const struct
  //
  //
  { nullptr, CART_CS1RAM_16M, { 0x4a, 0xf9, 0xff, 0x30, 0xea, 0x54, 0xfe, 0x3a, 0x79, 0xa7, 0x68, 0x69, 0xae, 0xde, 0x55, 0xbb } },	// Heart of Darkness (Prototype)
+ { nullptr, CART_CS1RAM_16M, { 0xf1, 0x71, 0xc3, 0xe4, 0x69, 0xd5, 0x99, 0x93, 0x94, 0x09, 0x05, 0xfc, 0x29, 0xd3, 0x8a, 0x59 } },	// Heart of Darkness (Prototype)
 };
 
 static const struct
@@ -140,8 +145,12 @@ static const struct
  { "MK-81036",	CPUCACHE_EMUMODE_DATA_CB },	// Clockwork Knight 2 (USA)
  { "T-30304G", CPUCACHE_EMUMODE_DATA_CB },	// DeJig - Lassen Art Collection (Japan)
  { "T-18504G", CPUCACHE_EMUMODE_DATA_CB },	// Father Christmas (Japan)
+ { "GS-9101",  CPUCACHE_EMUMODE_DATA_CB },	// Fighting Vipers (Japan)
+ { "MK-81041",  CPUCACHE_EMUMODE_DATA_CB },	// Fighting Vipers (Europe/USA)
  { "MK-81045", CPUCACHE_EMUMODE_DATA_CB },	// Golden Axe - The Duel (Europe) (and USA too?)
  { "GS-9041",	CPUCACHE_EMUMODE_DATA_CB },	// Golden Axe - The Duel (Japan)
+ { "GS-9173", CPUCACHE_EMUMODE_DATA_CB },	// House of the Dead (Japan)
+ { "GS-9055", CPUCACHE_EMUMODE_DATA_CB },	// Linkle Liver Story
  { "81600",	CPUCACHE_EMUMODE_DATA_CB },	// Sega Saturn Choice Cuts (USA)
  { "610680501",CPUCACHE_EMUMODE_DATA_CB },	// Segakore Sega Bible Mogitate SegaSaturn
  { "T-7001H",	CPUCACHE_EMUMODE_DATA_CB },	// Spot Goes to Hollywood (USA)
@@ -150,7 +159,13 @@ static const struct
  { "T-1206G",	CPUCACHE_EMUMODE_DATA_CB },	// Street Fighter Zero (Japan)
  { "T-1246G",	CPUCACHE_EMUMODE_DATA_CB },	// Street Fighter Zero 3 (Japan)
  { "T-1215H",	CPUCACHE_EMUMODE_DATA_CB },	// Super Puzzle Fighter II Turbo (USA)
+ { "GS-9113", CPUCACHE_EMUMODE_DATA_CB },	// Virtua Fighter Kids (Java Tea Original)
  { "T-15005G", CPUCACHE_EMUMODE_DATA_CB },	// Virtual Volleyball (Japan)
+ { "T-18601H", CPUCACHE_EMUMODE_DATA_CB },	// WipEout (USA)
+ { "T-18603G", CPUCACHE_EMUMODE_DATA_CB },	// WipEout (Japan)
+ { "T-11301H", CPUCACHE_EMUMODE_DATA_CB },	// WipEout (Europe)
+ { "GS-9061", CPUCACHE_EMUMODE_DATA_CB },	// (Hideo Nomo) World Series Baseball (Japan)
+ { "MK-81109", CPUCACHE_EMUMODE_DATA_CB },	// World Series Baseball (Europe/USA)
 
  //{ "MK-81019", CPUCACHE_EMUMODE_DATA },	// Astal (USA)
  //{ "GS-9019",  CPUCACHE_EMUMODE_DATA },	// Astal (Japan)
@@ -210,3 +225,4 @@ void DB_Lookup(const char* path, const char* sgid, const uint8* fd_id, unsigned*
  }
 #endif
 }
+

@@ -2,7 +2,7 @@
 /* Mednafen Sega Saturn Emulation Module                                      */
 /******************************************************************************/
 /* scu_dsp_common.inc:
-**  Copyright (C) 2015-2016 Mednafen Team
+**  Copyright (C) 2015-2018 Mednafen Team
 **
 ** This program is free software; you can redistribute it and/or
 ** modify it under the terms of the GNU General Public License
@@ -19,12 +19,6 @@
 ** 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 */
 
-#if defined(__x86_64__) && !defined(_WIN32)
-#define SIZEOF_VOID_P 8
-#else
-#define SIZEOF_VOID_P 4
-#endif
-
 #if (defined(__x86_64__) && defined(__code_model_small__) && !defined(__PIC__) && !defined(__pic__)) || SIZEOF_VOID_P <= 4
  #define DSP_INSTR_BASE_UIPT 0
  #define DSP_INSTR_RECOVER_TCAST uint32
@@ -37,6 +31,7 @@
 enum { DSP_EndCCSubVal = 1000000 };
 
 void DSP_Init(void);
+void DSP_FinishPRAMDMA(void);
 
 union DSPR48
 {
@@ -113,6 +108,12 @@ struct DSPS
  uint32 DataRAM[4][64];
 
  uint64 ProgRAM[256];	// Upper 32 bits = actual raw instruction, lower 32 bits = horrible emulator handler pointer madness
+
+ //
+ // See comments at top of scu.inc regarding DSP DMA to program RAM.
+ //
+ uint32 PRAMDMABuf[256];
+ uint32 PRAMDMABufCount;
 };
 
 
@@ -204,7 +205,7 @@ static INLINE uint32 DSP_InstrPre(void)
  }
 
  if(looped)
-  DSP.LOP -= (bool)DSP.LOP;
+  DSP.LOP = (DSP.LOP - 1) & 0x0FFF;
 
  return instr;
 }

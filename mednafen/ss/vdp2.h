@@ -2,7 +2,7 @@
 /* Mednafen Sega Saturn Emulation Module                                      */
 /******************************************************************************/
 /* vdp2.h:
-**  Copyright (C) 2015-2016 Mednafen Team
+**  Copyright (C) 2015-2019 Mednafen Team
 **
 ** This program is free software; you can redistribute it and/or
 ** modify it under the terms of the GNU General Public License
@@ -25,12 +25,12 @@
 namespace VDP2
 {
 
-uint32 Write8_DB(uint32 A, uint16 DB);
-uint32 Write16_DB(uint32 A, uint16 DB);
-uint16 Read16_DB(uint32 A);
+uint32 Write8_DB(uint32 A, uint16 DB) MDFN_HOT;
+uint32 Write16_DB(uint32 A, uint16 DB) MDFN_HOT;
+uint16 Read16_DB(uint32 A) MDFN_HOT;
 
-void Init(const bool IsPAL, const int sls, const int sle) MDFN_COLD;
-void FillVideoParams(MDFNGI* gi) MDFN_COLD;
+void Init(const bool IsPAL) MDFN_COLD;
+void SetGetVideoParams(MDFNGI* gi, const bool caspect, const int sls, const int sle, const bool show_h_overscan, const bool dohblend) MDFN_COLD;
 void Kill(void) MDFN_COLD;
 void StateAction(StateMem* sm, const unsigned load, const bool data_only) MDFN_COLD;
 
@@ -43,8 +43,8 @@ void AdjustTS(const int32 delta);
 void GetGunXTranslation(const bool clock28m, float* scale, float* offs);
 void StartFrame(EmulateSpecStruct* espec, const bool clock28m);
 
-static INLINE bool GetVBOut(void) { extern bool VBOut; return VBOut; }
-static INLINE bool GetHBOut(void) { extern bool HBOut; return HBOut; }
+INLINE bool GetVBOut(void) { extern bool VBOut; return VBOut; }
+INLINE bool GetHBOut(void) { extern bool HBOut; return HBOut; }
 
 INLINE void SetExtLatch(sscpu_timestamp_t event_timestamp, bool status)
 {
@@ -67,6 +67,14 @@ INLINE void SetExtLatch(sscpu_timestamp_t event_timestamp, bool status)
    //
    ExLatchPending = true;
    SS_SetEventNT(&events[SS_EVENT_VDP2], event_timestamp);
+#if 0
+   SS_SetEventNT(&events[SS_EVENT_VDP2], Update(event_timestamp));
+   //
+   LatchHV();
+   //
+   HVIsExLatched = true;
+   printf("ExLatch: %04x %04x\n", Latched_VCNT, Latched_HCNT);
+#endif
   }
  }
 }
@@ -80,14 +88,54 @@ enum
  GSREG_BM,
  GSREG_IM,
  GSREG_VRES,
- GSREG_HRES
+ GSREG_HRES,
+
+ GSREG_RAMCTL,
+
+ GSREG_BGON,
+ GSREG_MZCTL,
+ GSREG_SFSEL,
+ GSREG_SFCODE,
+ GSREG_CHCTLA,
+ GSREG_CHCTLB,
+
+ GSREG_SCXIN0,
+ GSREG_SCXDN0,
+ GSREG_SCYIN0,
+ GSREG_SCYDN0,
+ GSREG_ZMXIN0,
+ GSREG_ZMXDN0,
+ GSREG_ZMYIN0,
+ GSREG_ZMYDN0,
+
+ GSREG_SCXIN1,
+ GSREG_SCXDN1,
+ GSREG_SCYIN1,
+ GSREG_SCYDN1,
+ GSREG_ZMXIN1,
+ GSREG_ZMXDN1,
+ GSREG_ZMYIN1,
+ GSREG_ZMYDN1,
+
+ GSREG_SCXN2,
+ GSREG_SCYN2,
+ GSREG_SCXN3,
+ GSREG_SCYN3,
+
+ GSREG_ZMCTL,
+ GSREG_SCRCTL,
+
+ GSREG_CYCA0,
+ GSREG_CYCA1 = GSREG_CYCA0 + 1,
+ GSREG_CYCB0 = GSREG_CYCA0 + 2,
+ GSREG_CYCB1 = GSREG_CYCA0 + 3
+
 };
 
 uint32 GetRegister(const unsigned id, char* const special, const uint32 special_len);
 void SetRegister(const unsigned id, const uint32 value);
-uint8 PeekVRAM(const uint32 addr);
-void PokeVRAM(const uint32 addr, const uint8 val);
-
+uint8 PeekVRAM(uint32 addr);
+void PokeVRAM(uint32 addr, const uint8 val);
 #ifdef HAVE_DEBUG
 void MakeDump(const std::string& path) MDFN_COLD;
 #endif

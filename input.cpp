@@ -12,14 +12,15 @@
 // Locals
 //------------------------------------------------------------------------------
 
-static retro_environment_t environ_cb; // cached during input_set_env
+static retro_environment_t environ_cb; /* cached during input_init_env */
 
-#define MAX_CONTROLLERS		12 // 2x 6 player adapters
+#define MAX_CONTROLLERS		12 /* 2x 6 player adaptors */
 
 static unsigned players = 2;
 
 static int astick_deadzone = 0;
 static int trigger_deadzone = 0;
+static const int TRIGGER_MAX = 0xFFFF;
 static float mouse_sensitivity = 1.0f;
 
 static unsigned geometry_width = 0;
@@ -68,7 +69,7 @@ static int16_t input_throttle_latch[ MAX_CONTROLLERS ] = {0};
 #define RETRO_DEVICE_SS_GUN_JP		RETRO_DEVICE_SUBCLASS( RETRO_DEVICE_LIGHTGUN, 0 )
 #define RETRO_DEVICE_SS_GUN_US		RETRO_DEVICE_SUBCLASS( RETRO_DEVICE_LIGHTGUN, 1 )
 
-enum { INPUT_DEVICE_TYPES_COUNT = 1 /*none*/ + 9 }; // <-- update me!
+enum { INPUT_DEVICE_TYPES_COUNT = 1 /*none*/ + 9 }; /* <-- update me! */
 
 static const struct retro_controller_description input_device_types[ INPUT_DEVICE_TYPES_COUNT ] =
 {
@@ -82,6 +83,80 @@ static const struct retro_controller_description input_device_types[ INPUT_DEVIC
 	{ "Virtua Gun", RETRO_DEVICE_SS_GUN_JP },
 	{ "Dual Mission Sticks", RETRO_DEVICE_SS_MISSION2 }, /*"Panzer Dragoon Zwei" only!*/
 	{ NULL, 0 },
+};
+
+static const struct retro_controller_info ports_no_6player[ 1 + 1 + 1 ] =
+{
+	/* port one */
+	{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
+	
+	/* port two */
+	{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
+
+	{ 0 },
+};
+
+static const struct retro_controller_info ports_left_6player[ 6 + 1 + 1 ] =
+{
+	/* port one */
+	{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
+	{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
+	{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
+	{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
+	{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
+	{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
+
+	/* port two: 6player adaptor */
+	{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
+	
+	{ 0 },
+};
+
+static const struct retro_controller_info ports_right_6player[ 1 + 6 + 1 ] =
+{
+	/* port one */
+	{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
+	
+	/* port two: 6player adaptor */
+	{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
+	{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
+	{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
+	{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
+	{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
+	{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
+
+	{ 0 },
+};
+
+static const struct retro_controller_info ports_two_6player[ 6 + 6 + 1 ] =
+{
+	/* port one: 6player adaptor */
+	{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
+	{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
+	{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
+	{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
+	{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
+	{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
+	
+	/* port two: 6player adaptor */
+	{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
+	{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
+	{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
+	{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
+	{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
+	{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
+
+	{ 0 },
+};
+
+/* Lookup table to select ports info for all combinations
+   of 6player adaptor connection. */
+static const struct retro_controller_info* ports_lut[ 4 ] =
+{
+	ports_no_6player,
+	ports_left_6player,
+	ports_right_6player,
+	ports_two_6player
 };
 
 
@@ -284,11 +359,14 @@ static void get_analog_stick( retro_input_state_t input_state_cb,
 	*p_analog_y = analog_y;
 }
 
-static uint16_t apply_trigger_deadzone( uint16_t input )
+static uint32_t apply_trigger_deadzone( uint32_t input )
 {
+	// Scale by two and apply outer deadzone (about 1%)
+	input = ( input * 66191 ) / 32768;
+	
+	// Inner deadzone
 	if ( trigger_deadzone > 0 )
 	{
-		static const int TRIGGER_MAX = 0x8000;
 		const float scale = ((float)TRIGGER_MAX/(float)(TRIGGER_MAX - trigger_deadzone));
 
 		if ( input > trigger_deadzone )
@@ -297,15 +375,16 @@ static uint16_t apply_trigger_deadzone( uint16_t input )
 			float scaled = (input - trigger_deadzone)*scale;
 
 			input = (int)round(scaled);
-			if (input > +32767) {
-				input = +32767;
-			}
 		}
 		else
 		{
 			input = 0;
 		}
 	}
+	
+	// Clamp
+	if (input > TRIGGER_MAX)
+		input = TRIGGER_MAX;
 
 	return input;
 }
@@ -336,14 +415,15 @@ static uint16_t get_analog_trigger( retro_input_state_t input_state_cb,
 		trigger = input_state_cb( player_index,
 								  RETRO_DEVICE_JOYPAD,
 								  0,
-								  id ) ? 0x7FFF : 0;
+								  id ) ? 0xFFFF : 0;
 	}
 	else
 	{
 		// We got something, which means the front-end can handle analog buttons.
 		// So we apply a deadzone to the input and use it.
+		// Mednafen wants 0 - 65535 so we scale up from 0 - 32767
 
-		trigger = apply_trigger_deadzone( trigger );
+		trigger = apply_trigger_deadzone( (unsigned)trigger );
 	}
 
 	return trigger;
@@ -402,31 +482,16 @@ void input_init_env( retro_environment_t _environ_cb )
 
 #undef RETRO_DESCRIPTOR_BLOCK
 
-	// Send to front-end
+	/* Send to front-end */
 	environ_cb( RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS, desc );
 }
 
 void input_set_env( retro_environment_t environ_cb )
 {
-	static const struct retro_controller_info ports[ MAX_CONTROLLERS + 1 ] =
-	{
-		{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
-		{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
-		{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
-		{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
-		{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
-		{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
-		{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
-		{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
-		{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
-		{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
-		{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
-		{ input_device_types, INPUT_DEVICE_TYPES_COUNT },
-
-		{ 0 },
-	};
-
-	// Send to front-end
+	/* Pick ports selection */
+	const struct retro_controller_info* ports = ports_lut[ setting_multitap_port1 + setting_multitap_port2 * 2 ];
+	
+	/* Send to front-end */
 	environ_cb( RETRO_ENVIRONMENT_SET_CONTROLLER_INFO, (void*)ports );
 }
 
@@ -460,7 +525,7 @@ void input_set_deadzone_stick( int percent )
 void input_set_deadzone_trigger( int percent )
 {
 	if ( percent >= 0 && percent <= 100 )
-		trigger_deadzone = (int)( percent * 0.01f * 0x8000);
+		trigger_deadzone = (int)( percent * 0.01f * TRIGGER_MAX);
 }
 
 void input_set_mouse_sensitivity( int percent )
@@ -570,12 +635,19 @@ void input_update( retro_input_state_t input_state_cb )
 				int analog_x, analog_y;
 				get_analog_stick( input_state_cb, iplayer, RETRO_DEVICE_INDEX_ANALOG_LEFT, &analog_x, &analog_y );
 
+				// mednafen wants 0 - 32767 - 65535
+				uint16_t thumb_x, thumb_y;
+				thumb_x = static_cast< uint16_t >( analog_x + 32767 );
+				thumb_y = static_cast< uint16_t >( analog_y + 32767 );
+
 				//
 				// -- triggers
 
+				// mednafen wants 0 - 65535
 				uint16_t l_trigger, r_trigger;
 				l_trigger = get_analog_trigger( input_state_cb, iplayer, RETRO_DEVICE_ID_JOYPAD_L2 );
 				r_trigger = get_analog_trigger( input_state_cb, iplayer, RETRO_DEVICE_ID_JOYPAD_R2 );
+
 
 				//
 				// -- mode switch
@@ -610,29 +682,19 @@ void input_update( retro_input_state_t input_state_cb )
 				//
 				// -- format input data
 
-				// Convert analog values into direction values.
-				uint16_t right = analog_x > 0 ?  analog_x : 0;
-				uint16_t left  = analog_x < 0 ? -analog_x : 0;
-				uint16_t down  = analog_y > 0 ?  analog_y : 0;
-				uint16_t up    = analog_y < 0 ? -analog_y : 0;
-
 				// Apply analog/digital mode switch bit.
 				if ( input_mode[iplayer] & INPUT_MODE_3D_PAD_ANALOG ) {
 					p_input->buttons |= 0x1000; // set bit 12
 				}
 
-				p_input->u8[0x2] = ((left  >> 0) & 0xff);
-				p_input->u8[0x3] = ((left  >> 8) & 0xff);
-				p_input->u8[0x4] = ((right >> 0) & 0xff);
-				p_input->u8[0x5] = ((right >> 8) & 0xff);
-				p_input->u8[0x6] = ((up    >> 0) & 0xff);
-				p_input->u8[0x7] = ((up    >> 8) & 0xff);
-				p_input->u8[0x8] = ((down  >> 0) & 0xff);
-				p_input->u8[0x9] = ((down  >> 8) & 0xff);
-				p_input->u8[0xa] = ((r_trigger >> 0) & 0xff);
-				p_input->u8[0xb] = ((r_trigger >> 8) & 0xff);
-				p_input->u8[0xc] = ((l_trigger >> 0) & 0xff);
-				p_input->u8[0xd] = ((l_trigger >> 8) & 0xff);
+				p_input->u8[0x2] = ((thumb_x >> 0) & 0xff);
+				p_input->u8[0x3] = ((thumb_x >> 8) & 0xff);
+				p_input->u8[0x4] = ((thumb_y >> 0) & 0xff);
+				p_input->u8[0x5] = ((thumb_y >> 8) & 0xff);
+				p_input->u8[0x6] = ((r_trigger >> 0) & 0xff);
+				p_input->u8[0x7] = ((r_trigger >> 8) & 0xff);
+				p_input->u8[0x8] = ((l_trigger >> 0) & 0xff);
+				p_input->u8[0x9] = ((l_trigger >> 8) & 0xff);
 			}
 
 			break;
@@ -680,24 +742,24 @@ void input_update( retro_input_state_t input_state_cb )
 
 			{
 				// mouse buttons
-				p_input->u8[0x8] = 0;
+				p_input->u8[0x4] = 0;
 
 				if ( input_state_cb( iplayer, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_LEFT ) ) {
-					p_input->u8[0x8] |= ( 1 << 0 ); // A
+					p_input->u8[0x4] |= ( 1 << 0 ); // A
 				}
 
 				if ( input_state_cb( iplayer, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_RIGHT ) ) {
-					p_input->u8[0x8] |= ( 1 << 1 ); // B
+					p_input->u8[0x4] |= ( 1 << 1 ); // B
 				}
 
 				if ( input_state_cb( iplayer, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_MIDDLE ) ) {
-					p_input->u8[0x8] |= ( 1 << 2 ); // C
+					p_input->u8[0x4] |= ( 1 << 2 ); // C
 				}
 
 				if ( input_state_cb( iplayer, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START ) ||
 					 input_state_cb( iplayer, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_BUTTON_4 ) ||
 					 input_state_cb( iplayer, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_BUTTON_5 ) ) {
-					p_input->u8[0x8] |= ( 1 << 3 ); // Start
+					p_input->u8[0x4] |= ( 1 << 3 ); // Start
 				}
 
 				// mouse input
@@ -705,10 +767,10 @@ void input_update( retro_input_state_t input_state_cb )
 				dx_raw = input_state_cb( iplayer, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_X );
 				dy_raw = input_state_cb( iplayer, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_Y );
 
-				int *delta;
-				delta = (int*)p_input;
-				delta[ 0 ] = (int)roundf( dx_raw * mouse_sensitivity );
-				delta[ 1 ] = (int)roundf( dy_raw * mouse_sensitivity );
+				int16_t *delta;
+				delta = (int16_t*)p_input;
+				delta[ 0 ] = (int16_t)roundf( dx_raw * mouse_sensitivity );
+				delta[ 1 ] = (int16_t)roundf( dy_raw * mouse_sensitivity );
 			}
 
 			break;
@@ -953,8 +1015,8 @@ int input_StateAction( StateMem* sm, const unsigned load, const bool data_only )
 
 	SFORMAT StateRegs[] =
 	{
-		SFARRAY16N( input_mode, MAX_CONTROLLERS, "pad-mode" ),
-		SFARRAY16N( input_throttle_latch, MAX_CONTROLLERS, "throttle-latch" ),
+		SFPTR16N( input_mode, MAX_CONTROLLERS, "pad-mode" ),
+		SFPTR16N( input_throttle_latch, MAX_CONTROLLERS, "throttle-latch" ),
 		SFEND
 	};
 
@@ -1079,6 +1141,9 @@ void input_multitap( int port, bool enabled )
 	if ( setting_multitap_port2 ) {
 		players += 5;
 	}
+	
+	/*Tell front-end*/
+	input_set_env( environ_cb );
 }
 
 //==============================================================================

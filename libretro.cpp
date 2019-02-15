@@ -20,7 +20,7 @@
 #include <mednafen/hash/sha256.h>
 #include "mednafen/hash/md5.h"
 #include "mednafen/ss/ss.h"
-#include "mednafen/ss/debug.inc"
+static INLINE bool DBG_NeedCPUHooks(void) { return false; } // <-- replaces debug.inc
 
 #include <ctype.h>
 #include <time.h>
@@ -29,9 +29,9 @@
 
 #include <zlib.h>
 
-#define MEDNAFEN_CORE_NAME_MODULE            "ss"
-#define MEDNAFEN_CORE_NAME                   "Mednafen Saturn"
-#define MEDNAFEN_CORE_VERSION                "v0.9.48"
+#define MEDNAFEN_CORE_NAME                   "Beetle Saturn"
+#define MEDNAFEN_CORE_VERSION                "v1.22.1"
+#define MEDNAFEN_CORE_VERSION_NUMERIC        0x00102201
 #define MEDNAFEN_CORE_EXTENSIONS             "cue|ccd|chd|toc|m3u"
 #define MEDNAFEN_CORE_TIMING_FPS             59.82
 #define MEDNAFEN_CORE_GEOMETRY_BASE_W        320
@@ -808,6 +808,8 @@ static int32 cur_clock_div;
 static int64 UpdateInputLastBigTS;
 static INLINE void UpdateSMPCInput(const sscpu_timestamp_t timestamp)
 {
+ SMPC_TransformInput();
+	
  int32 elapsed_time = (((int64)timestamp * cur_clock_div * 1000 * 1000) - UpdateInputLastBigTS) / (EmulatedSS.MasterClock / MDFN_MASTERCLOCK_FIXED(1));
 
  UpdateInputLastBigTS += (int64)elapsed_time * (EmulatedSS.MasterClock / MDFN_MASTERCLOCK_FIXED(1));
@@ -825,17 +827,17 @@ static sscpu_timestamp_t MidSync(const sscpu_timestamp_t timestamp)
     //
     //printf("MidSync: %d\n", VDP2::PeekLine());
     {
-       espec->SoundBufSize += SOUND_FlushOutput();
-       espec->MasterCycles = timestamp * cur_clock_div;
+//       espec->SoundBufSize += SOUND_FlushOutput();
+//       espec->MasterCycles = timestamp * cur_clock_div;
     }
     //printf("%d\n", espec->SoundBufSize);
 
     SMPC_UpdateOutput();
-    //
-    //
-    //MDFN_MidSync(espec);
-    //
-    //
+
+    input_poll_cb();
+
+    input_update( input_state_cb );
+
     UpdateSMPCInput(timestamp);
 
     AllowMidSync = false;
@@ -849,7 +851,7 @@ static void Emulate(EmulateSpecStruct* espec_arg)
  int32 end_ts;
 
  espec = espec_arg;
- AllowMidSync = MDFN_GetSettingB("ss.midsync");
+ AllowMidSync = setting_midsync;
 
  cur_clock_div = SMPC_StartFrame(espec);
  UpdateSMPCInput(0);
@@ -1131,8 +1133,8 @@ static bool InitCommon(const unsigned cpucache_emumode, const unsigned cart_type
    SCU_Init();
    SMPC_Init(smpc_area, MasterClock);
    VDP1::Init();
-   VDP2::Init(PAL, sls, sle);
-   VDP2::FillVideoParams(&EmulatedSS);
+   VDP2::Init(PAL);
+   VDP2::SetGetVideoParams(&EmulatedSS, true, sls, sle, true, DoHBlend);
    CDB_Init();
    SOUND_Init();
 
@@ -1141,24 +1143,6 @@ static bool InitCommon(const unsigned cpucache_emumode, const unsigned cart_type
 
 #ifdef HAVE_DEBUG
    DBG_Init();
-#endif
-
-#if 0
-   MDFN_printf("\n");
-   {
-      const bool correct_aspect = MDFN_GetSettingB("ss.correct_aspect");
-      const bool h_overscan = MDFN_GetSettingB("ss.h_overscan");
-      const bool h_blend = MDFN_GetSettingB("ss.h_blend");
-
-      MDFN_printf(_("Displayed scanlines: [%u,%u]\n"), sls, sle);
-      MDFN_printf(_("Correct Aspect Ratio: %s\n"), correct_aspect ? _("Enabled") : _("Disabled"));
-      MDFN_printf(_("Show H Overscan: %s\n"), h_overscan ? _("Enabled") : _("Disabled"));
-      MDFN_printf(_("H Blend: %s\n"), h_blend ? _("Enabled") : _("Disabled"));
-
-      VDP2::SetGetVideoParams(&EmulatedSS, correct_aspect, sls, sle, h_overscan, h_blend);
-   }
-
-   MDFN_printf("\n");
 #endif
 
    // Apply multi-tap state to SMPC
@@ -1457,7 +1441,7 @@ MDFN_COLD int LibRetro_StateAction( StateMem* sm, const unsigned load, const boo
 
       SFORMAT SRDStateRegs[] =
       {
-         SFARRAY( sr_dig.data(), sr_dig.size() ),
+         SFPTR8( sr_dig.data(), sr_dig.size() ),
          SFEND
       };
 
@@ -1481,16 +1465,16 @@ MDFN_COLD int LibRetro_StateAction( StateMem* sm, const unsigned load, const boo
   SFVAR(UpdateInputLastBigTS),
 
   SFVAR(next_event_ts),
-  SFARRAY32N(ep.event_times, sizeof(ep.event_times) / sizeof(ep.event_times[0]), "event_times"),
-  SFARRAYN(ep.event_order, sizeof(ep.event_order) / sizeof(ep.event_order[0]), "event_order"),
+  SFPTR32N(ep.event_times, sizeof(ep.event_times) / sizeof(ep.event_times[0]), "event_times"),
+  SFPTR8N(ep.event_order, sizeof(ep.event_order) / sizeof(ep.event_order[0]), "event_order"),
 
   SFVAR(SH7095_mem_timestamp),
   SFVAR(SH7095_BusLock),
   SFVAR(SH7095_DB),
 
-  SFARRAY16(WorkRAML, WORKRAM_BANK_SIZE_BYTES / sizeof(uint16_t)),
-  SFARRAY16(WorkRAMH, WORKRAM_BANK_SIZE_BYTES / sizeof(uint16_t)),
-  SFARRAY(BackupRAM, sizeof(BackupRAM) / sizeof(BackupRAM[0])),
+  SFPTR16(WorkRAML, WORKRAM_BANK_SIZE_BYTES / sizeof(uint16_t)),
+  SFPTR16(WorkRAMH, WORKRAM_BANK_SIZE_BYTES / sizeof(uint16_t)),
+  SFPTR8(BackupRAM, sizeof(BackupRAM) / sizeof(BackupRAM[0])),
 
   SFEND
  };
@@ -1587,8 +1571,6 @@ static MDFNSetting SSSettings[] =
 
  { "ss.slstartp", MDFNSF_NOFLAGS, "First displayed scanline in PAL mode.", NULL, MDFNST_INT, "0", "-16", "271" },
  { "ss.slendp", MDFNSF_NOFLAGS, "Last displayed scanline in PAL mode.", NULL, MDFNST_INT, "255", "-16", "271" },
-
- { "ss.midsync", MDFNSF_NOFLAGS, "Enable mid-frame synchronization.", "Mid-frame synchronization can reduce input latency, but it will increase CPU requirements.", MDFNST_BOOL, "0" },
 
 #ifdef MDFN_SS_DEV_BUILD
  { "ss.dbg_mask", MDFNSF_NOFLAGS, "Debug printf mask.", NULL, MDFNST_UINT, "0x00001", "0x00000", "0xFFFFF" },
@@ -1876,6 +1858,16 @@ static void check_variables(bool startup)
       {
          old_cdimagecache = cdimage_cache;
       }
+   }
+
+   var.key = "beetle_saturn_midsync";
+
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      if (!strcmp(var.value, "enabled"))
+         setting_midsync = true;
+      else if (!strcmp(var.value, "disabled"))
+         setting_midsync = false;
    }
 
    var.key = "beetle_saturn_autortc";
@@ -2302,13 +2294,17 @@ void retro_get_system_info(struct retro_system_info *info)
 void retro_get_system_av_info(struct retro_system_av_info *info)
 {
    memset(info, 0, sizeof(*info));
-   info->timing.fps            = MEDNAFEN_CORE_TIMING_FPS;
    info->timing.sample_rate    = 44100;
    info->geometry.base_width   = MEDNAFEN_CORE_GEOMETRY_BASE_W;
    info->geometry.base_height  = MEDNAFEN_CORE_GEOMETRY_BASE_H;
    info->geometry.max_width    = MEDNAFEN_CORE_GEOMETRY_MAX_W;
    info->geometry.max_height   = MEDNAFEN_CORE_GEOMETRY_MAX_H;
    info->geometry.aspect_ratio = MEDNAFEN_CORE_GEOMETRY_ASPECT_RATIO;
+
+   if (retro_get_region() == RETRO_REGION_PAL)
+      info->timing.fps            = 49.96;
+   else
+      info->timing.fps            = 59.88;
 }
 
 void retro_deinit(void)
@@ -2324,11 +2320,10 @@ void retro_deinit(void)
 
 unsigned retro_get_region(void)
 {
-   If (content_is_pal == true){
+   if (is_pal)
        return RETRO_REGION_PAL;  //Ben Swith PAL
-   }else{
+   else
        return RETRO_REGION_NTSC;
-   }
 }
 
 unsigned retro_api_version(void)
@@ -2351,6 +2346,7 @@ void retro_set_environment( retro_environment_t cb )
       { "beetle_saturn_mouse_sensitivity", "Mouse Sensitivity; 100%|105%|110%|115%|120%|125%|130%|135%|140%|145%|150%|155%|160%|165%|170%|175%|180%|185%|190%|195%|200%|5%|10%|15%|20%|25%|30%|35%|40%|45%|50%|55%|60%|65%|70%|75%|80%|85%|90%|95%" },
       { "beetle_saturn_virtuagun_crosshair", "Gun Crosshair; Cross|Dot|Off" },
       { "beetle_saturn_cdimagecache", "CD Image Cache (restart); disabled|enabled" },
+      { "beetle_saturn_midsync", "Mid-frame Input Synchronization; disabled|enabled" },
       { "beetle_saturn_autortc", "Automatically set RTC on game load; enabled|disabled" },
       { "beetle_saturn_autortc_lang", "BIOS language; english|german|french|spanish|italian|japanese" },
       { "beetle_saturn_horizontal_overscan", "Horizontal Overscan Mask; 0|2|4|6|8|10|12|14|16|18|20|22|24|26|28|30|32|34|36|38|40|42|44|46|48|50|52|54|56|58|60" },
@@ -2413,7 +2409,7 @@ size_t retro_serialize_size(void)
       st.malloced       = 0;
       st.initial_malloc = 0;
 
-      if ( MDFNSS_SaveSM( &st, 0, 0, NULL, NULL, NULL ) )
+      if ( MDFNSS_SaveSM( &st, MEDNAFEN_CORE_VERSION_NUMERIC, NULL, NULL, NULL ) )
       {
          // Cache and tidy up.
          serialize_size = st.len;
@@ -2440,7 +2436,7 @@ bool retro_serialize(void *data, size_t size)
    st.malloced       = size;
    st.initial_malloc = 0;
 
-   ret               = MDFNSS_SaveSM(&st, 0, 0, NULL, NULL, NULL);
+   ret               = MDFNSS_SaveSM(&st, MEDNAFEN_CORE_VERSION_NUMERIC, NULL, NULL, NULL);
 
    /* there are still some errors with the save states, the size seems to change on some games for now just log when this happens */
    if (st.len != size)
@@ -2450,6 +2446,7 @@ bool retro_serialize(void *data, size_t size)
    free(st.data);
    return ret;
 }
+
 bool retro_unserialize(const void *data, size_t size)
 {
    StateMem st;
@@ -2460,7 +2457,7 @@ bool retro_unserialize(const void *data, size_t size)
    st.malloced       = 0;
    st.initial_malloc = 0;
 
-   return MDFNSS_LoadSM(&st, 0, 0);
+   return MDFNSS_LoadSM(&st, MEDNAFEN_CORE_VERSION_NUMERIC);
 }
 
 void *retro_get_memory_data(unsigned type)

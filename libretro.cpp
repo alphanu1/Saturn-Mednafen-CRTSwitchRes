@@ -30,8 +30,8 @@ static INLINE bool DBG_NeedCPUHooks(void) { return false; } // <-- replaces debu
 #include <zlib.h>
 
 #define MEDNAFEN_CORE_NAME                   "Beetle Saturn"
-#define MEDNAFEN_CORE_VERSION                "v1.22.1"
-#define MEDNAFEN_CORE_VERSION_NUMERIC        0x00102201
+#define MEDNAFEN_CORE_VERSION                "v1.21.2"
+#define MEDNAFEN_CORE_VERSION_NUMERIC        0x00102102
 #define MEDNAFEN_CORE_EXTENSIONS             "cue|ccd|chd|toc|m3u"
 #define MEDNAFEN_CORE_TIMING_FPS             59.82
 #define MEDNAFEN_CORE_GEOMETRY_BASE_W        320
@@ -40,6 +40,31 @@ static INLINE bool DBG_NeedCPUHooks(void) { return false; } // <-- replaces debu
 #define MEDNAFEN_CORE_GEOMETRY_MAX_H         576
 #define MEDNAFEN_CORE_GEOMETRY_ASPECT_RATIO  (4.0 / 3.0)
 #define FB_WIDTH                             MEDNAFEN_CORE_GEOMETRY_MAX_W
+
+extern uint8 VRes; // in vdp2_render.cpp
+static const unsigned g_vertical_resolutions[ 4 ] =
+{
+	224,
+	240,
+	256,
+	288, // <-- invalid, safe default
+};
+static const unsigned g_vertical_line_skip_ntsc[ 4 ] =
+{
+	8,
+	0,
+	0,
+	0, // <-- invalid, safe default
+};
+static const unsigned g_vertical_line_skip_pal[ 4 ] =
+{
+	32,
+	24,
+	16,
+	0, // <-- invalid, safe default
+};
+
+
 
 struct retro_perf_callback perf_cb;
 retro_get_cpu_features_t perf_get_cpu_features_cb = NULL;
@@ -56,7 +81,6 @@ static bool failed_init = false;
 static unsigned image_offset = 0;
 static unsigned image_crop = 0;
 
-static unsigned h_mask = 0;
 static unsigned first_sl = 0;
 static unsigned last_sl = 239;
 static unsigned first_sl_pal = 0;
@@ -1134,7 +1158,7 @@ static bool InitCommon(const unsigned cpucache_emumode, const unsigned cart_type
    SMPC_Init(smpc_area, MasterClock);
    VDP1::Init();
    VDP2::Init(PAL);
-   VDP2::SetGetVideoParams(&EmulatedSS, true, sls, sle, true, DoHBlend);
+   VDP2::SetGetVideoParams(&EmulatedSS, true, sls, sle, true, false);
    CDB_Init();
    SOUND_Init();
 
@@ -1898,48 +1922,6 @@ static void check_variables(bool startup)
           setting_smpc_autortc_lang = 5;
    }
 
-   var.key = "beetle_saturn_horizontal_overscan";
-
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-   {
-      h_mask = atoi(var.value);
-   }
-
-   var.key = "beetle_saturn_initial_scanline";
-
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-   {
-      first_sl = atoi(var.value);
-   }
-
-   var.key = "beetle_saturn_last_scanline";
-
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-   {
-      last_sl = atoi(var.value);
-   }
-
-   var.key = "beetle_saturn_initial_scanline_pal";
-
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-   {
-      first_sl_pal = atoi(var.value);
-   }
-
-   var.key = "beetle_saturn_last_scanline_pal";
-
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-   {
-      last_sl_pal = atoi(var.value);
-   }
-
-   var.key = "beetle_saturn_horizontal_blend";
-
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-   {
-      bool newval = (!strcmp(var.value, "enabled"));
-      DoHBlend = newval;
-   }
 
    var.key = "beetle_saturn_analog_stick_deadzone";
    var.value = NULL;
@@ -2171,16 +2153,12 @@ void retro_run(void)
 {
    bool updated = false;
    bool hires_h_mode;
-   unsigned overscan_mask;
-   unsigned linevisfirst, linevislast;
+   unsigned linevisfirst;
    static unsigned width, height;
    static unsigned game_width, game_height;
 
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) && updated)
       check_variables(false);
-
-   linevisfirst   =  is_pal ? first_sl_pal : first_sl;
-   linevislast    =  is_pal ? last_sl_pal : last_sl;
 
    // Keep the counters at 0 so that they don't display a bogus
    // value if this option is enabled later on
@@ -2238,34 +2216,33 @@ void retro_run(void)
    const uint32_t *pix = surf->pixels;
    size_t pitch        = FB_WIDTH * sizeof(uint32_t);
 
-   hires_h_mode   =  (rects[0] == 704) ? true : false;
-   overscan_mask  =  (h_mask >> 1) << hires_h_mode;
-   width          =  rects[0] - (h_mask << hires_h_mode);
-   height         =  (linevislast + 1 - linevisfirst) << PrevInterlaced;
+   width          =  rects[0];
+   height         =  g_vertical_resolutions[VRes] << PrevInterlaced;
+   linevisfirst   =  is_pal ? g_vertical_line_skip_pal[VRes]
+   							: g_vertical_line_skip_ntsc[VRes];
 
+   // Changed?
    if (width != game_width || height != game_height)
    {
       struct retro_system_av_info av_info;
 
-      // Change frontend resolution using  base width/height (+ overscan adjustments).
-      // This avoids inconsistent frame scales when game switches between interlaced and non-interlaced modes.
-      av_info.geometry.base_width   = 352 - h_mask;
-      av_info.geometry.base_height  = linevislast + 1 - linevisfirst;
+      av_info.geometry.base_width   = width;
+      av_info.geometry.base_height  = height;
       av_info.geometry.max_width    = MEDNAFEN_CORE_GEOMETRY_MAX_W;
       av_info.geometry.max_height   = MEDNAFEN_CORE_GEOMETRY_MAX_H;
       av_info.geometry.aspect_ratio = MEDNAFEN_CORE_GEOMETRY_ASPECT_RATIO;
       environ_cb(RETRO_ENVIRONMENT_SET_GEOMETRY, &av_info);
 
-      log_cb(RETRO_LOG_INFO, "Target framebuffer size : %dx%d\n", width, height);
-
+	  log_cb(RETRO_LOG_INFO, "av_info.geometry.base_width/base_height : %d x %d (is_pal=%d)\n", width, height, is_pal);
+ 		
       game_width  = width;
       game_height = height;
 
       input_set_geometry( width, height );
    }
 
-   pix += surf->pitchinpix * (linevisfirst << PrevInterlaced) + overscan_mask;
-
+    pix += surf->pitchinpix * (linevisfirst << PrevInterlaced);
+    
    fb = pix;
 
    video_cb(fb, game_width, game_height, pitch);
@@ -2345,7 +2322,7 @@ void retro_set_environment( retro_environment_t cb )
       { "beetle_saturn_trigger_deadzone", "Trigger Deadzone; 15%|20%|25%|30%|0%|5%|10%"},
       { "beetle_saturn_mouse_sensitivity", "Mouse Sensitivity; 100%|105%|110%|115%|120%|125%|130%|135%|140%|145%|150%|155%|160%|165%|170%|175%|180%|185%|190%|195%|200%|5%|10%|15%|20%|25%|30%|35%|40%|45%|50%|55%|60%|65%|70%|75%|80%|85%|90%|95%" },
       { "beetle_saturn_virtuagun_crosshair", "Gun Crosshair; Cross|Dot|Off" },
-      { "beetle_saturn_cdimagecache", "CD Image Cache (restart); disabled|enabled" },
+      { "beetle_saturn_cdimagecache", "CD Image Cache (restart); enabled|disabled" },
       { "beetle_saturn_midsync", "Mid-frame Input Synchronization; disabled|enabled" },
       { "beetle_saturn_autortc", "Automatically set RTC on game load; enabled|disabled" },
       { "beetle_saturn_autortc_lang", "BIOS language; english|german|french|spanish|italian|japanese" },
